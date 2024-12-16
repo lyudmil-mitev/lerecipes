@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Recipes</title>
+</head>
+
+<body>
+    <form id="recipe-form" action="/api/recipes/" method="post">
+        <label for="title">Recipe Title:</label>
+        {% csrf_token %}
+        <input type="text" id="title" name="title" placeholder="For example: Lasagna" required>
+
+        <label for="style">Style:</label>
+        <select id="style" name="style" required>
+            <option value="Healthy">Healthy</option>
+            <option value="Italian">Italian</option>
+            <option value="Low-carb">Low-carb</option>
+            <option value="Cheesy">Cheesy</option>
+        </select>
+
+        <button type="submit">Submit</button>
+    </form>
+
+    <h1>Recipes</h1>
+    <ul id="recipe-list"></ul>
+
+    <script>
+        document.getElementById('recipe-form').addEventListener('submit', function (event) {
+            event.preventDefault();
+
+            const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+            const title = document.getElementById('title').value;
+            const style = document.getElementById('style').value;
+
+            fetch('/api/recipes/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({
+                    theme: `${style} ${title}`,
+                })
+            })
+        });
+    </script>
+
+    <script>
+             document.addEventListener('DOMContentLoaded', function () {
+                 fetch('/api/recipes/')
+                     .then(response => response.json())
+                     .then(data => {
+                         const recipeList = document.getElementById('recipe-list');
+                         if (!data.results.length) {
+                             const li = document.createElement('li');
+                             li.textContent = 'No recipes found';
+                             recipeList.appendChild(li);
+                             return;
+                         } else {
+                             data.results.forEach(recipe => {
+                                 const li = document.createElement('li');
+                                 li.textContent = recipe.title;
+                                 recipeList.appendChild(li);
+                             });
+                         }
+                     })
+                     .catch(error => console.error('Error fetching recipes:', error));
+             });
+    </script>
+</body>
+
+</html>
