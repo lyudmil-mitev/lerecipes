@@ -10,9 +10,28 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_protect
 from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import render
+from django.http import StreamingHttpResponse
+from celery.result import AsyncResult
+from rest_framework.negotiation import BaseContentNegotiation
+from django.core.cache import cache
+
+import time
 
 def index(request):
     return render(request, 'index.html', {})
+
+class IgnoreClientContentNegotiation(BaseContentNegotiation):
+    def select_parser(self, request, parsers):
+        """
+        Select the first parser in the `.parser_classes` list.
+        """
+        return parsers[0]
+
+    def select_renderer(self, request, renderers, format_suffix):
+        """
+        Select the first renderer in the `.renderer_classes` list.
+        """
+        return (renderers[0], renderers[0].media_type)
 
 class RecipePagination(PageNumberPagination):
     page_size = 20
@@ -43,3 +62,19 @@ class CreateRecipeView(APIView):
             return Response({"task_id": task.id, "recipe_id": recipe.id}, status=status.HTTP_202_ACCEPTED)
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class TaskStatusView(APIView):
+    content_negotiation_class = IgnoreClientContentNegotiation
+
+    def get(self, request, task_id):
+        def event_stream(task_id):
+            while True:
+                result = cache.get(f'task_{task_id}_result')
+                if result:
+                    yield f'data: {result}\n\n'
+                    break
+                time.sleep(1)
+
+        response = StreamingHttpResponse(event_stream(task_id), content_type='text/event-stream')
+        response['Cache-Control'] = 'no-cache'
+        return response

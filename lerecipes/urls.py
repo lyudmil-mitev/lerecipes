@@ -16,11 +16,12 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
-from core.views import CreateRecipeView
+from core.views import CreateRecipeView, TaskStatusView
 from core.views import index
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/recipes/', CreateRecipeView.as_view(), name='create_recipe'),
+    path('api/task/<str:task_id>/', TaskStatusView.as_view(), name='task_status'),
     path('', index, name='index'),
 ]

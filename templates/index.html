@@ -4,6 +4,56 @@
 <head>
     <meta charset="UTF-8">
     <title>Recipes</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+
+        @media (prefers-color-scheme: light) {
+            body {
+                background-color: white;
+                color: black;
+            }
+        }
+
+        @media (prefers-color-scheme: dark) {
+            body {
+                background-color: rgb(50, 50, 50);
+                color: white;
+            }
+
+            form {
+                background-color: #333;
+                color: white;
+            }
+
+            input,
+            select,
+            button {
+                background-color: #555;
+                color: white;
+            }
+        }
+
+        #app:empty::before {
+            content: "Loading recipes...";
+        }
+
+        #app {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-top: 16px;
+
+            le-recipe-card {
+                flex: 1 1 400px;
+                overflow: hidden;
+                border-radius: 8px;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                border: 1px solid #ccc;
+            }
+        }
+    </style>
 </head>
 
 <body>
@@ -24,7 +74,74 @@
     </form>
 
     <h1>Recipes</h1>
-    <ul id="recipe-list"></ul>
+    <div id="app"></div>
+
+    <script>
+        class LeRecipeCard extends HTMLElement {
+            constructor() {
+                super();
+                const shadow = this.attachShadow({ mode: 'open' });
+                shadow.innerHTML = `
+                    <style>
+                        :host {
+                            display: block;
+                            margin-bottom: 16px;
+                            background-color: var(--card-background-color);
+                            border-radius: 8px;
+                        }
+
+                        @media (prefers-color-scheme: light) {
+                            :host {
+                                background-color: #f9f9f9;
+                                color: black;
+                            }
+                        }
+                        
+                        @media (prefers-color-scheme: dark) {
+                            :host {
+                                background-color: #555;
+                                color: f9f9f9;
+                            }
+                            
+                            h1 {
+                                color: white;
+                                background-color: #333;
+                            }
+                        }
+
+                        h1 {
+                            margin: 0 -16px;
+                            padding: 8px 16px;
+                            border-radius: 8px 8px 0 0;
+                            color: var(--card-heading-color);
+                        }
+
+                        .card {
+                            padding: 0 16px 16px 16px;
+
+                            h2 {
+                                margin-top: 0;
+                                color: var(--card-heading-color);
+                            }
+
+                            ul {
+                                padding-left: 20px;
+                            }
+                        }
+                    </style>
+                    <div class="card">
+                        <h1><slot name="title"></slot></h1>
+                        <h3>Ingredients:</h3>
+                        <slot name="ingredients"></slot>
+                        <h3>Preparation:</h3>
+                        <slot></slot>
+                    </div>
+                `;
+            }
+        }
+
+        customElements.define('le-recipe-card', LeRecipeCard);
+    </script>
 
     <script>
         document.getElementById('recipe-form').addEventListener('submit', function (event) {
@@ -33,6 +150,11 @@
             const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
             const title = document.getElementById('title').value;
             const style = document.getElementById('style').value;
+            
+            // Disable the form while the request is in progress
+            document.getElementById('recipe-form').querySelectorAll('input, select, button').forEach(element => {
+                element.disabled = true;
+            });
 
             fetch('/api/recipes/', {
                 method: 'POST',
@@ -43,32 +165,59 @@
                 body: JSON.stringify({
                     theme: `${style} ${title}`,
                 })
+            }).then(response => response.json()).then(response => {
+                if (response.task_id) {
+                    // Wait for Server sent event at /api/task/{task_id}/
+                    const eventSource = new EventSource(`/api/task/${response.task_id}/`);
+                    eventSource.onmessage = function (event) {
+                        const data = JSON.parse(event.data);
+                        if (data.state === 'SUCCESS') {
+                            eventSource.close();
+                            document.getElementById('recipe-form').reset();
+                            document.getElementById('recipe-form').querySelectorAll('input, select, button').forEach(element => {
+                                element.disabled = false;
+                            });
+                            console.log('Recipe added successfully!');
+                        } else if (data.state === 'FAILURE') {
+                            eventSource.close();
+                            document.getElementById('recipe-form').querySelectorAll('input, select, button').forEach(element => {
+                                element.disabled = false;
+                            });
+                            console.error('Failed to add recipe.');
+                        }
+                    };
+                }
             })
         });
     </script>
 
     <script>
-             document.addEventListener('DOMContentLoaded', function () {
-                 fetch('/api/recipes/')
-                     .then(response => response.json())
-                     .then(data => {
-                         const recipeList = document.getElementById('recipe-list');
-                         if (!data.results.length) {
-                             const li = document.createElement('li');
-                             li.textContent = 'No recipes found';
-                             recipeList.appendChild(li);
-                             return;
-                         } else {
-                             data.results.forEach(recipe => {
-                                 const li = document.createElement('li');
-                                 li.textContent = recipe.title;
-                                 recipeList.appendChild(li);
-                             });
-                         }
-                     })
-                     .catch(error => console.error('Error fetching recipes:', error));
-             });
+        document.addEventListener('DOMContentLoaded', function () {
+            fetch('/api/recipes/')
+                .then(response => response.json())
+                .then(data => {
+                    const recipeList = document.getElementById('recipe-list');
+                    if (!data.results.length) {
+                        document.getElementById('app').innerHTML = 'No recipes found.';
+                    } else {
+                        data.results.forEach(recipe => {
+                            const recipeHtml = `
+                                <le-recipe-card>
+                                    <span slot="title">${recipe.title}</span>
+                                    <ol slot="ingredients">
+                                        ${recipe.ingredients.split("\n").map(ingredient => `<li>${ingredient}</li>`).join('')}
+                                    </ol>
+                                    ${recipe.steps}
+                                </le-recipe-card>
+                            `;
+                            document.getElementById('app').innerHTML += recipeHtml;
+                        });
+                    }
+                })
+                .catch(error => console.error('Error fetching recipes:', error));
+        });
     </script>
+
 </body>
 
 </html>
